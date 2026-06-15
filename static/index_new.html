@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Where is my Bus – Live Tracking (New)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/feather-icons"></script>
+  <style>
+    :root {
+      --bg: #070c17;
+      --panel: #0f1c33;
+      --panel-alt:#132545;
+      --border: rgba(255,255,255,0.07);
+      --text: #eef4fa;
+      --muted: #93a6bd;
+      --accent: #3b82f6;
+      --accent-glow: #60a5fa;
+      --good:#22c55e;
+      --warn:#f59e0b;
+      --danger:#ef4444;
+      --radius: 14px;
+      --grad: linear-gradient(145deg,#102743 0%, #0c1e33 55%, #081424 100%);
+      --glass: linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02));
+      --ease: cubic-bezier(.4,.0,.2,1);
+    }
+    * { box-sizing: border-box; }
+    html,body { height:100%; margin:0; font-family:Inter, system-ui; background:radial-gradient(circle at 20% 20%, #132845, #08131f 60%); color:var(--text); }
+    body { display:flex; flex-direction:column; overflow:hidden; }
+    #app { flex:1; display:grid; grid-template-columns:360px 1fr; min-height:0; }
+    @media (max-width:1000px){ #app { grid-template-columns:300px 1fr; } }
+    @media (max-width:820px){ #app { grid-template-columns:100%; } .sidebar { position:absolute; z-index:500; width:100%; max-height:55%; bottom:0; border-top:1px solid var(--border); backdrop-filter:blur(20px); } }
+
+    header { display:flex; align-items:center; gap:18px; padding:14px 20px; background:linear-gradient(90deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01)); border-bottom:1px solid var(--border); position:relative; }
+    header h1 { font-size:20px; letter-spacing:.5px; display:flex; align-items:center; gap:8px; margin:0; }
+    header h1 span.logo { display:inline-flex; width:40px; height:40px; align-items:center; justify-content:center; background:linear-gradient(145deg,#2563eb,#1e3a8a); border-radius:12px; box-shadow:0 6px 14px -6px rgba(37,99,235,.6); font-size:22px; }
+    header .meta { display:flex; flex-direction:column; font-size:12px; color:var(--muted); }
+    header .right { margin-left:auto; display:flex; gap:14px; align-items:center; }
+    .badge { background:rgba(255,255,255,0.07); padding:4px 10px; border-radius:30px; font-size:11px; letter-spacing:.5px; display:inline-flex; align-items:center; gap:6px; }
+    .badge.online { background:rgba(34,197,94,.15); color:var(--good); }
+    .badge.error { background:rgba(239,68,68,.15); color:var(--danger); }
+
+    .sidebar { display:flex; flex-direction:column; padding:14px 16px 20px; background:var(--grad); border-right:1px solid var(--border); overflow:auto; gap:18px; position:relative; }
+    .sidebar::-webkit-scrollbar { width:9px; }
+    .sidebar::-webkit-scrollbar-track { background:transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.08); border-radius:40px; }
+    .panel { background:var(--glass); padding:14px 16px 16px; border:1px solid var(--border); border-radius:var(--radius); position:relative; overflow:hidden; display:flex; flex-direction:column; gap:12px; }
+    .panel h2 { margin:0 0 4px; font-size:14px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; gap:6px; }
+    .panel.with-bar::before { content:""; position:absolute; inset:0; background:linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01)); pointer-events:none; }
+
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
+    .stat { background:linear-gradient(160deg,#122b4a,#0d1e31); padding:10px 12px 12px; border:1px solid rgba(255,255,255,0.06); border-radius:12px; display:flex; flex-direction:column; gap:4px; position:relative; overflow:hidden; }
+    .stat .label { font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); }
+    .stat .value { font-size:20px; font-weight:600; display:flex; align-items:center; gap:6px; }
+    .stat .spark { position:absolute; inset:0; background:radial-gradient(circle at 80% 20%, rgba(96,165,250,.18), transparent 60%); opacity:.8; mix-blend-mode:overlay; }
+
+    .toolbar { display:flex; flex-wrap:wrap; gap:10px; }
+    .toolbar .group { display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); padding:6px 10px; border-radius:40px; border:1px solid var(--border); }
+    .toolbar input[type=text], .toolbar select, .toolbar input[type=number] { background:transparent; border:none; outline:none; color:var(--text); font-size:13px; min-width:90px; }
+    .toolbar select { min-width:170px; }
+    .toolbar label { font-size:11px; display:flex; align-items:center; gap:6px; }
+    .toolbar input[type=checkbox] { accent-color:var(--accent); }
+
+    button.btn { background:linear-gradient(135deg,#1d4ed8,#2563eb); color:#fff; border:none; padding:10px 16px; font-size:13px; border-radius:12px; cursor:pointer; font-weight:600; letter-spacing:.4px; display:inline-flex; align-items:center; gap:6px; position:relative; overflow:hidden; transition:background .3s var(--ease), transform .3s var(--ease); }
+    button.btn:hover { transform:translateY(-2px); background:linear-gradient(135deg,#2563eb,#1d4ed8); }
+    button.btn.secondary { background:rgba(255,255,255,0.07); color:var(--text); border:1px solid var(--border); }
+    button.btn.secondary:hover { background:rgba(255,255,255,0.12); }
+    .pulse-dot { width:10px; height:10px; background:var(--good); border-radius:50%; position:relative; }
+    .pulse-dot::after { content:""; position:absolute; inset:0; border-radius:50%; background:var(--good); animation:pulse 1.8s infinite ease-out; }
+    @keyframes pulse { 0%{ transform:scale(1); opacity:.7;} 70%{ transform:scale(2.8); opacity:0;} 100%{ opacity:0;} }
+
+    #map { position:absolute; inset:0; background:#02101d; }
+    .mapwrap { position:relative; }
+    .floating-bar { position:absolute; top:16px; left:50%; transform:translateX(-50%); background:linear-gradient(135deg,#0d2035,#16304b); border:1px solid var(--border); backdrop-filter:blur(12px); display:flex; gap:18px; padding:10px 16px; border-radius:16px; z-index:300; box-shadow:0 8px 28px -10px rgba(0,0,0,0.6); }
+    .floating-bar .item { display:flex; flex-direction:column; font-size:11px; color:var(--muted); }
+    .floating-bar .item .v { font-size:14px; font-weight:600; color:var(--text); }
+
+    .vehicle-list { max-height:340px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+    .vehicle-row { position:relative; padding:10px 12px 12px; background:linear-gradient(140deg,#122a49,#0c1f33); border:1px solid rgba(255,255,255,0.07); border-radius:12px; display:grid; grid-template-columns:1fr auto; gap:6px; cursor:pointer; transition:transform .25s var(--ease), background .35s var(--ease); }
+    .vehicle-row:hover { transform:translateY(-3px); background:linear-gradient(140deg,#163454,#0f2640); }
+    .vehicle-row.offline { opacity:.45; filter:grayscale(.5); }
+    .vehicle-row.stale { box-shadow:0 0 0 2px rgba(245,158,11,.4); }
+    .vehicle-row.in-range { box-shadow:0 0 0 2px rgba(34,197,94,.35); }
+    .vehicle-row .id { font-weight:600; font-size:15px; letter-spacing:.3px; display:flex; align-items:center; gap:6px; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+    .chip { background:rgba(255,255,255,0.07); padding:3px 8px 4px; font-size:11px; border-radius:30px; display:inline-flex; align-items:center; gap:4px; font-weight:500; letter-spacing:.3px; }
+    .chip.speed { background:rgba(34,197,94,.18); color:var(--good); }
+    .chip.heading { background:rgba(59,130,246,.18); color:var(--accent-glow); }
+    .chip.age { background:rgba(255,255,255,.10); color:var(--muted); }
+    .chip.dist { background:rgba(250,204,21,.22); color:#fcd34d; }
+    .chip.eta { background:rgba(99,102,241,.24); color:#818cf8; }
+
+    .arrivals { display:flex; flex-direction:column; gap:10px; max-height:240px; overflow:auto; }
+    .arrival { padding:8px 10px; background:linear-gradient(150deg,#132a49,#0d1e31); border:1px solid rgba(255,255,255,0.07); border-radius:10px; display:grid; grid-template-columns:1fr auto; gap:8px; position:relative; }
+    .arrival .bar { position:absolute; left:0; top:0; bottom:0; width:5px; background:linear-gradient(180deg,#3b82f6,#1d4ed8); border-radius:5px 0 0 5px; opacity:.8; }
+    .arrival.fast .bar { background:linear-gradient(180deg,#22c55e,#16a34a); }
+    .arrival.soon .bar { background:linear-gradient(180deg,#f59e0b,#d97706); }
+    .timeline { position:relative; height:6px; background:rgba(255,255,255,0.08); border-radius:4px; overflow:hidden; margin-top:6px; }
+    .timeline span { position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg,#60a5fa,#3b82f6); animation:growWidth 6s linear infinite alternate; }
+    @keyframes growWidth { 0%{ width:35%; } 100%{ width:90%; } }
+
+    .marker-bus { background:transparent!important; border:none!important; font-size:26px; width:28px; height:28px; line-height:26px; text-align:center; transform:translate(-50%,-50%); }
+    .marker-bus span { display:inline-block; transition:transform .5s var(--ease), filter .4s var(--ease); filter:drop-shadow(0 0 4px rgba(96,165,250,.4)); }
+    .marker-bus.offline span { opacity:.4; filter:grayscale(.7); }
+    .marker-bus.stale span { filter:drop-shadow(0 0 6px rgba(245,158,11,.6)); }
+
+    footer { padding:10px 16px; font-size:12px; display:flex; justify-content:space-between; align-items:center; background:linear-gradient(90deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01)); border-top:1px solid var(--border); }
+    .status-dot { width:10px; height:10px; background:var(--danger); border-radius:50%; position:relative; }
+    .status-dot.online { background:var(--good); }
+    .status-dot.online::after { content:""; position:absolute; inset:0; border-radius:50%; border:2px solid rgba(34,197,94,.4); animation:pulse 2.4s infinite; }
+
+    .fade-in { animation:fadeIn .5s var(--ease); }
+    @keyframes fadeIn { from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:translateY(0); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span class="logo">🚌</span>Where is my Bus</h1>
+    <div class="meta">
+      <span>Solapur Live Transit Monitor</span>
+      <span id="last-update">Initializing…</span>
+    </div>
+    <div class="right">
+      <div class="badge" id="sse-badge"><i data-feather="activity" style="width:14px;height:14px"></i><span>SSE: <strong id="sse-status">connecting</strong></span></div>
+      <button id="fit-all" class="btn secondary"><i data-feather="maximize"></i>Fit All</button>
+      <button id="refresh" class="btn"><i data-feather="refresh-ccw"></i>Refresh</button>
+    </div>
+  </header>
+
+  <div id="app">
+    <div class="sidebar">
+      <div class="panel with-bar fade-in" id="stats-panel">
+        <h2><i data-feather="cpu"></i>System Stats</h2>
+        <div class="grid">
+          <div class="stat" id="stat-vehicles">
+            <div class="spark"></div>
+            <div class="label">Vehicles Online</div>
+            <div class="value" id="count">0</div>
+          </div>
+          <div class="stat">
+            <div class="spark"></div>
+            <div class="label">Selected Stop</div>
+            <div class="value" id="selected-stop-label">None</div>
+          </div>
+          <div class="stat">
+            <div class="spark"></div>
+            <div class="label">Stops Loaded</div>
+            <div class="value" id="stops-count">0</div>
+          </div>
+          <div class="stat">
+            <div class="spark"></div>
+            <div class="label">Stream Status</div>
+            <div class="value" id="stream-ind">—</div>
+          </div>
+        </div>
+        <div class="timeline" aria-hidden="true"><span></span></div>
+      </div>
+
+      <div class="panel fade-in" id="filters-panel">
+        <h2><i data-feather="sliders"></i>Filters</h2>
+        <div class="toolbar">
+          <div class="group"><i data-feather="search" style="width:16px"></i><input id="search" type="text" placeholder="Search id" /></div>
+          <div class="group"><label><input id="hide-offline" type="checkbox"/> Hide Offline</label></div>
+          <div class="group"><label><input id="toggle-stops" type="checkbox" checked/> Show Stops</label></div>
+          <div class="group"><select id="stop-select"><option value="">(No Stop)</option></select></div>
+          <div class="group"><label>Radius <input id="radius" type="number" value="500" min="50" step="50" style="width:70px"/> m</label></div>
+          <div class="group"><label><input id="toggle-mph" type="checkbox"/> mph</label></div>
+        </div>
+      </div>
+
+      <div class="panel fade-in" id="arrivals-panel" style="display:none;">
+        <h2><i data-feather="clock"></i>Arrivals</h2>
+        <div class="arrivals" id="arrivals"></div>
+      </div>
+
+      <div class="panel fade-in" id="vehicles-panel">
+        <h2><i data-feather="list"></i>Vehicles</h2>
+        <div class="vehicle-list" id="vehicles"></div>
+      </div>
+
+      <div class="panel fade-in" id="about-panel">
+        <h2><i data-feather="info"></i>About</h2>
+        <div style="font-size:12px; line-height:1.5; color:var(--muted)">
+          This interface shows real‑time Solapur bus positions using a lightweight Flask backend + CSV data. ETA is an approximation based on straight‑line distance and current speed. Upgrade to route-aware ETAs by integrating path geometry.
+        </div>
+      </div>
+    </div>
+    <div class="mapwrap">
+      <div class="floating-bar fade-in">
+        <div class="item"><span class="v" id="live-center">17.6599, 75.9064</span><span>Map Center</span></div>
+        <div class="item"><span class="v" id="sse-events">0</span><span>Stream Events</span></div>
+        <div class="item"><span class="v" id="avg-speed">0 km/h</span><span>Avg Speed</span></div>
+      </div>
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <footer>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div class="status-dot" id="status-dot"></div>
+      <span>Live • Leaflet + Flask • Solapur Transit</span>
+    </div>
+    <div style="opacity:.7">© <span id="year"></span> Transit Demo</div>
+  </footer>
+
+  <script>
+    const API_BASE = '';
+    const VEHICLES_URL = API_BASE + '/api/vehicles';
+    const STREAM_URL = API_BASE + '/api/stream';
+    const OFFLINE_THRESHOLD_SEC = 30;
+    const STALE_THRESHOLD_SEC = 15;
+    const MAX_BREADCRUMB_POINTS = 20;
+
+    const map = L.map('map', { zoomControl: true }).setView([17.6599,75.9064], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const markers = new Map();
+    const markerLayer = L.layerGroup().addTo(map);
+    const trailLayer = L.layerGroup().addTo(map);
+    const stopsLayer = L.layerGroup().addTo(map);
+    const deviceState = new Map();
+    let stopsData = [];
+    let selectedStop = null;
+    let useMph = false;
+    let streamEvents = 0;
+
+    const busIcon = L.divIcon({
+      html:'<span>🚌</span>',
+      className:'marker-bus',
+      iconSize:[28,28],
+      iconAnchor:[14,14]
+    });
+
+    function setStatusOnline(on){
+      document.getElementById('status-dot').classList.toggle('online', !!on);
+      document.getElementById('stream-ind').textContent = on ? 'Open' : 'Closed';
+      document.getElementById('sse-status').textContent = on ? 'open' : 'error';
+      const badge = document.getElementById('sse-badge');
+      badge.classList.toggle('error', !on);
+      badge.classList.toggle('online', !!on);
+    }
+
+    function makePopupHtml(v){
+      const id = v.device_id || v.device || 'unknown';
+      const tst = v.timestamp_iso || v.timestamp || '—';
+      return `<div><strong>${escapeHtml(id)}</strong><div class="small">${escapeHtml(String(v.latitude))}, ${escapeHtml(String(v.longitude))}</div><div class="small">${escapeHtml(String(tst))}</div></div>`;
+    }
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',''':'&#39;'})[c]); }
+
+    function updateMarkers(vehicles){
+      let count = 0; const points = [];
+      vehicles.forEach(v => {
+        const id = v.device_id || v.tid || v.topic || 'unknown';
+        const lat = Number(v.latitude); const lon = Number(v.longitude);
+        if(!isFinite(lat) || !isFinite(lon)) return;
+        count++; points.push([lat,lon]);
+        const tsIso = v.timestamp_iso || v.timestamp; const nowTime = tsIso ? new Date(tsIso) : new Date();
+        let state = deviceState.get(id);
+        if(!state){
+          state = {prevLat:lat, prevLon:lon, prevTime:nowTime, trailCoords:[[lat,lon]], speedKmh:0, headingDeg:null, lastUpdate:nowTime};
+          deviceState.set(id,state);
+        } else {
+          const dtSec = (nowTime - state.prevTime)/1000;
+            if(dtSec>0 && (Math.abs(lat-state.prevLat)>1e-6 || Math.abs(lon-state.prevLon)>1e-6)){
+              const distM = haversineMeters(state.prevLat, state.prevLon, lat, lon);
+              state.speedKmh = (distM/1000)/(dtSec/3600);
+              state.headingDeg = bearingDeg(state.prevLat, state.prevLon, lat, lon);
+              state.prevLat = lat; state.prevLon = lon; state.prevTime = nowTime;
+              state.trailCoords.push([lat,lon]); if(state.trailCoords.length>MAX_BREADCRUMB_POINTS) state.trailCoords.shift();
+            }
+            state.lastUpdate = nowTime;
+        }
+        if(markers.has(id)){
+          const m = markers.get(id); m.setLatLng([lat,lon]); m.getPopup().setContent(makePopupHtml(v)); applyMarkerState(m,state); }
+        else { const m = L.marker([lat,lon], {icon:busIcon}); m.bindPopup(makePopupHtml(v)); m.addTo(markerLayer); markers.set(id,m); applyMarkerState(m,state); }
+        if(state){ if(state.polyline){ trailLayer.removeLayer(state.polyline); } state.polyline = L.polyline(state.trailCoords,{color:'rgba(255,255,255,0.45)',weight:2}).addTo(trailLayer); }
+        const rowEl = document.querySelector(`[data-id="${cssEscape(id)}"]`); if(rowEl){ rowEl.dataset.lat = lat; rowEl.dataset.lon = lon; }
+      });
+      document.getElementById('count').textContent = String(count);
+      document.getElementById('avg-speed').textContent = avgSpeed().toFixed(1) + (useMph? ' mph':' km/h');
+      if(points.length && document._fitOnNext){ map.fitBounds(points,{padding:[60,60]}); document._fitOnNext=false; }
+    }
+    function cssEscape(s){ return s.replace(/[^a-z0-9-_]/gi, c => '_'); }
+
+    function renderVehicleList(vehicles){
+      const wrap = document.getElementById('vehicles'); wrap.innerHTML='';
+      const searchVal = document.getElementById('search').value.trim().toLowerCase();
+      const hideOffline = document.getElementById('hide-offline').checked;
+      vehicles.forEach(v=>{
+        const id = v.device_id || v.tid || v.topic || 'unknown';
+        const lat = v.latitude; const lon = v.longitude;
+        if(searchVal && !id.toLowerCase().includes(searchVal)) return;
+        const state = deviceState.get(id);
+        const row = document.createElement('div'); row.className='vehicle-row fade-in'; row.dataset.id=id;
+        let speedVal = state && isFinite(state.speedKmh)? state.speedKmh : 0;
+        const speedStr = useMph? (speedVal*0.621371).toFixed(1)+' mph' : speedVal.toFixed(1)+' km/h';
+        const headingStr = state && state.headingDeg!=null? Math.round(state.headingDeg)+'°' : '—';
+        const tsIso = v.timestamp_iso || v.timestamp; const ageSec = tsIso? ((Date.now()-new Date(tsIso))/1000):0; const ageStr = formatAge(ageSec);
+        if(ageSec>OFFLINE_THRESHOLD_SEC) row.classList.add('offline'); else if(ageSec>STALE_THRESHOLD_SEC) row.classList.add('stale');
+        if(hideOffline && ageSec>OFFLINE_THRESHOLD_SEC) return;
+        let distChip=''; let etaChip='';
+        if(selectedStop && isFinite(Number(lat)) && isFinite(Number(lon))){
+          const radiusM = Number(document.getElementById('radius').value)||0;
+          const dM = haversineMeters(selectedStop.lat, selectedStop.lon, Number(lat), Number(lon));
+          const dStr = dM<1000? Math.round(dM)+'m' : (dM/1000).toFixed(2)+'km'; distChip=`<span class="chip dist">${escapeHtml(dStr)}</span>`;
+          const speedKmh = state && isFinite(state.speedKmh)? state.speedKmh : 0;
+          const etaMin = estimateEtaMinutes(dM, speedKmh);
+          if(etaMin===null) etaChip='<span class="chip eta">ETA: —</span>'; else if(etaMin<1) etaChip='<span class="chip eta">ETA: &lt;1m</span>'; else etaChip = `<span class=\"chip eta\">ETA: ${etaMin}m</span>`;
+          if(dM<=radiusM && radiusM>0) row.classList.add('in-range');
+        }
+        row.innerHTML = `<div><div class=\"id\">${escapeHtml(id)}</div><div class=\"chips\"><span class=\"chip speed\">${escapeHtml(speedStr)}</span><span class=\"chip heading\">${escapeHtml(headingStr)}</span><span class=\"chip age\">${escapeHtml(ageStr)}</span>${etaChip}${distChip}</div><div style=\"margin-top:4px;font-size:11px;color:var(--muted)\">${escapeHtml(String(lat))}, ${escapeHtml(String(lon))}</div></div><div style=\"display:flex;flex-direction:column;gap:4px;align-items:flex-end;font-size:11px;color:var(--muted)\">${escapeHtml(String(tsIso||''))}</div>`;
+        row.addEventListener('click',()=>{ if(!isFinite(Number(lat))||!isFinite(Number(lon))) return; map.flyTo([Number(lat),Number(lon)],16,{duration:0.9}); const m=markers.get(id); if(m) m.openPopup(); });
+        wrap.appendChild(row);
+      });
+    }
+
+    async function fetchVehicles(){
+      try{
+        const res = await fetch(VEHICLES_URL); if(!res.ok) throw new Error('Failed vehicles');
+        const data = await res.json(); renderVehicleList(data); updateMarkers(data); renderArrivals(data);
+        document.getElementById('last-update').textContent = new Date().toLocaleString();
+        document.getElementById('live-center').textContent = map.getCenter().lat.toFixed(4)+', '+map.getCenter().lng.toFixed(4);
+      }catch(e){ console.error(e); }
+    }
+
+    let es=null; function startStream(){ if(es) return; try{ es=new EventSource(STREAM_URL); document.getElementById('sse-status').textContent='connecting'; es.onopen=()=>{ setStatusOnline(true); }; es.onerror=e=>{ setStatusOnline(false); console.error(e); }; es.onmessage=evt=>{ try{ const changed=JSON.parse(evt.data); streamEvents+=changed.length; document.getElementById('sse-events').textContent=streamEvents; fetchVehicles(); }catch(err){ console.error('bad sse',err); } }; }catch(e){ console.error('SSE failed',e); document.getElementById('sse-status').textContent='failed'; } }
+    function stopStream(){ if(es){ es.close(); es=null; setStatusOnline(false); document.getElementById('sse-status').textContent='stopped'; } }
+
+    document.getElementById('refresh').addEventListener('click',()=>fetchVehicles());
+    document.getElementById('fit-all').addEventListener('click',()=>{ document._fitOnNext=true; fetchVehicles(); });
+    document.getElementById('search').addEventListener('input',()=>fetchVehicles());
+    document.getElementById('hide-offline').addEventListener('change',()=>fetchVehicles());
+    document.getElementById('toggle-stops').addEventListener('change',e=>{ if(e.target.checked){ renderStops(); } else { stopsLayer.clearLayers(); } });
+    document.getElementById('stop-select').addEventListener('change',e=>{ const val=e.target.value; selectedStop=stopsData.find(s=>s.id===val)||null; fetchVehicles(); if(selectedStop){ map.flyTo([selectedStop.lat,selectedStop.lon],14); document.getElementById('selected-stop-label').textContent=selectedStop.name.slice(0,20); } else { document.getElementById('selected-stop-label').textContent='None'; } });
+    document.getElementById('radius').addEventListener('input',()=>fetchVehicles());
+    document.getElementById('toggle-mph').addEventListener('change',e=>{ useMph=e.target.checked; fetchVehicles(); });
+
+    fetchVehicles(); startStream(); fetchStops().then(()=>renderStops()); document.getElementById('year').textContent=new Date().getFullYear();
+
+    function estimateEtaMinutes(distanceMeters, speedKmh){ if(!isFinite(distanceMeters)||distanceMeters<0) return null; if(!isFinite(speedKmh)||speedKmh<=0.1) return null; const hours=(distanceMeters/1000)/speedKmh; const mins=Math.round(hours*60); return mins>=0? mins:null; }
+    function renderArrivals(vehicles){ const panel=document.getElementById('arrivals-panel'); const list=document.getElementById('arrivals'); if(!selectedStop){ panel.style.display='none'; return; } panel.style.display='flex'; const rows=[]; vehicles.forEach(v=>{ const id=v.device_id||v.tid||v.topic||'unknown'; const lat=Number(v.latitude); const lon=Number(v.longitude); if(!isFinite(lat)||!isFinite(lon)) return; const state=deviceState.get(id); const dM=haversineMeters(selectedStop.lat,selectedStop.lon,lat,lon); const speedKmh=state&&isFinite(state.speedKmh)? state.speedKmh:0; const etaMin=estimateEtaMinutes(dM,speedKmh); const ageSec=state? ((Date.now()-state.lastUpdate.getTime())/1000):0; rows.push({id,dM,etaMin,ageSec}); }); rows.sort((a,b)=>{ if(a.etaMin==null&&b.etaMin==null) return a.dM-b.dM; if(a.etaMin==null) return 1; if(b.etaMin==null) return -1; return a.etaMin-b.etaMin || a.dM-b.dM; }); list.innerHTML=''; if(rows.length===0){ list.innerHTML='<div class="small">No vehicles</div>'; return; } rows.slice(0,12).forEach(r=>{ const el=document.createElement('div'); el.className='arrival fade-in'; if(r.etaMin!=null&&r.etaMin<3) el.classList.add('fast'); else if(r.etaMin!=null&&r.etaMin<7) el.classList.add('soon'); const etaLabel=r.etaMin==null?'—':(r.etaMin<1?'<1m':r.etaMin+'m'); el.innerHTML=`<div><div style=\"font-weight:600;font-size:13px\">${escapeHtml(r.id)}</div><div style=\"font-size:11px;color:var(--muted)\">${r.dM<1000?Math.round(r.dM)+'m':(r.dM/1000).toFixed(2)+'km'} • ETA ${etaLabel}</div></div><div style=\"font-size:11px;align-self:center;color:${r.etaMin!=null&&r.etaMin<3?'var(--good)':'var(--accent-glow)'}\">${etaLabel}</div><div class=\"bar\"></div>`; list.appendChild(el); }); }
+
+    window._whereis = { fetchVehicles, markers };
+    function haversineMeters(lat1, lon1, lat2, lon2){ const R=6371000; const toRad=d=>d*Math.PI/180; const dLat=toRad(lat2-lat1); const dLon=toRad(lon2-lon1); const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
+    function bearingDeg(lat1, lon1, lat2, lon2){ const toRad=d=>d*Math.PI/180; const toDeg=r=>r*180/Math.PI; const dLon=toRad(lon2-lon1); const y=Math.sin(dLon)*Math.cos(toRad(lat2)); const x=Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(dLon); let brng=toDeg(Math.atan2(y,x)); return (brng+360)%360; }
+    function formatAge(sec){ if(sec<5) return 'just now'; if(sec<60) return Math.round(sec)+'s ago'; const m=Math.floor(sec/60); if(m<60) return m+'m ago'; const h=Math.floor(m/60); return h+'h ago'; }
+    function applyMarkerState(marker,state){ const el=marker.getElement(); if(!el||!state) return; const ageSec=(Date.now()-state.lastUpdate.getTime())/1000; el.classList.toggle('offline',ageSec>OFFLINE_THRESHOLD_SEC); el.classList.toggle('stale',ageSec>STALE_THRESHOLD_SEC&&ageSec<=OFFLINE_THRESHOLD_SEC); const span=el.querySelector('span'); if(span&&state.headingDeg!=null){ span.style.transform=`rotate(${state.headingDeg}deg)`; } }
+    function avgSpeed(){ let total=0,n=0; deviceState.forEach(s=>{ if(isFinite(s.speedKmh)&&s.speedKmh>0){ total+=s.speedKmh; n++; } }); return n? (useMph? total*0.621371/n : total/n):0; }
+
+    async function fetchStops(){ try{ const res=await fetch(API_BASE+'/api/stops'); if(!res.ok) throw new Error('Failed stops'); stopsData=await res.json(); }catch(e){ console.error(e); stopsData=[]; } }
+    function renderStops(){ stopsLayer.clearLayers(); stopsData.forEach(s=>{ if(!isFinite(s.lat)||!isFinite(s.lon)) return; const color=s.approximate? '#f59e0b':'#22c55e'; const circle=L.circleMarker([s.lat,s.lon],{radius:6,color:color,weight:2,fillColor:color,fillOpacity:.7}); const html=`<strong>${escapeHtml(s.name)}</strong><br><span class=\"small\">${escapeHtml(s.lat.toFixed(5))}, ${escapeHtml(s.lon.toFixed(5))}</span><br><span class=\"small\">${escapeHtml(s.note||'')}${s.approximate?' (approx.)':''}</span>`; circle.bindPopup(html); circle.addTo(stopsLayer); }); const sel=document.getElementById('stop-select'); sel.innerHTML='<option value="">(No Stop)</option>'; stopsData.forEach(s=>{ const opt=document.createElement('option'); opt.value=s.id; opt.textContent=s.name.slice(0,48)+(s.name.length>48?'…':''); sel.appendChild(opt); }); document.getElementById('stops-count').textContent=stopsData.length; }
+
+    feather.replace();
+  </script>
+</body>
+</html>
